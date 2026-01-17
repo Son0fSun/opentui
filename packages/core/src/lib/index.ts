@@ -1,4 +1,5 @@
 export * from "./border"
+export * from "./clipboard"
 export * from "./KeyHandler"
 export * from "./ascii.font"
 export * from "./hast-styled-text"
