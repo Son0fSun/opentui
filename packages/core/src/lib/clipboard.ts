@@ -1,7 +1,12 @@
 // OSC 52 clipboard support for terminal applications.
 // Supports tmux/screen passthrough, including nested tmux sessions.
 
-export type ClipboardTarget = "c" | "p" | "s" | "q"
+export enum ClipboardTarget {
+  Clipboard = "c",
+  Primary = "p",
+  Secondary = "s",
+  Query = "q",
+}
 
 type ClipboardCapabilities = { osc52?: boolean } | null | undefined
 
@@ -18,7 +23,7 @@ export class Clipboard {
     this.adapter = adapter
   }
 
-  public copyToClipboard(text: string, target: ClipboardTarget = "c"): boolean {
+  public copyToClipboard(text: string, target: ClipboardTarget = ClipboardTarget.Clipboard): boolean {
     if (!this.canWrite()) {
       return false
     }
@@ -28,7 +33,7 @@ export class Clipboard {
     return true
   }
 
-  public clearClipboard(target: ClipboardTarget = "c"): boolean {
+  public clearClipboard(target: ClipboardTarget = ClipboardTarget.Clipboard): boolean {
     if (!this.canWrite()) {
       return false
     }

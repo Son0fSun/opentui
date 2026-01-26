@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "bun:test"
-import { Clipboard } from "./clipboard"
+import { Clipboard, ClipboardTarget } from "./clipboard"
 
 describe("clipboard", () => {
   const originalEnv = { ...process.env }
@@ -55,7 +55,7 @@ describe("clipboard", () => {
 
     it("should support different selection targets", () => {
       const { clipboard, getWritten } = createClipboard({ isTTY: true })
-      clipboard.copyToClipboard("test", "p")
+      clipboard.copyToClipboard("test", ClipboardTarget.Primary)
       const written = getWritten()
       expect(written.startsWith("\x1b]52;p;")).toBe(true)
     })
