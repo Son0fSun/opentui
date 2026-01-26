@@ -14,6 +14,7 @@ import { resolveRenderLib, type RenderLib } from "./zig"
 import { TerminalConsole, type ConsoleOptions, capture } from "./console"
 import { MouseParser, type MouseEventType, type RawMouseEvent, type ScrollInfo } from "./lib/parse.mouse"
 import { Selection } from "./lib/selection"
+import { Clipboard, type ClipboardTarget } from "./lib/clipboard"
 import { EventEmitter } from "events"
 import { destroySingleton, hasSingleton, singleton } from "./lib/singleton"
 import { getObjectsInViewport } from "./lib/objects-in-viewport"
@@ -391,6 +392,7 @@ export class CliRenderer extends EventEmitter implements RenderContext {
 
   private currentSelection: Selection | null = null
   private selectionContainers: Renderable[] = []
+  private clipboard: Clipboard
 
   private _splitHeight: number = 0
   private renderOffset: number = 0
@@ -524,6 +526,15 @@ export class CliRenderer extends EventEmitter implements RenderContext {
       "SIGBUS", // Bus error
       "SIGFPE", // Floating point exception
     ]
+
+    this.clipboard = new Clipboard({
+      isTTY: () => !!this.stdout.isTTY,
+      write: (sequence) => {
+        this.writeOut(sequence)
+        return true
+      },
+      getCapabilities: () => this._capabilities,
+    })
     this.resizeDebounceDelay = config.debounceDelay || 100
     this.targetFps = config.targetFps || 30
     this.maxFps = config.maxFps || 60
@@ -1455,6 +1466,18 @@ export class CliRenderer extends EventEmitter implements RenderContext {
 
   public setTerminalTitle(title: string): void {
     this.lib.setTerminalTitle(this.rendererPtr, title)
+  }
+
+  public copyToClipboard(text: string, target?: ClipboardTarget): boolean {
+    return this.clipboard.copyToClipboard(text, target)
+  }
+
+  public clearClipboard(target?: ClipboardTarget): boolean {
+    return this.clipboard.clearClipboard(target)
+  }
+
+  public isOsc52Supported(): boolean {
+    return this.clipboard.isOsc52Supported()
   }
 
   public dumpHitGrid(): void {
