@@ -25,6 +25,7 @@ pub const Capabilities = struct {
     sync: bool = false,
     bracketed_paste: bool = false,
     hyperlinks: bool = false,
+    osc52: bool = false,
     explicit_cursor_positioning: bool = false,
 };
 
@@ -53,6 +54,7 @@ pub const Options = struct {
     // Default 0b00101 (5) = disambiguate + alternate keys
     // Use 0b00111 (7) to also enable event types for key release detection
     kitty_keyboard_flags: u8 = 0b00101,
+    remote: bool = false,
 };
 
 pub const TerminalInfo = struct {
@@ -253,28 +255,38 @@ fn checkEnvironmentOverrides(self: *Terminal) void {
     self.in_tmux = false;
     self.skip_graphics_query = false;
 
-    var env_map = std.process.getEnvMap(std.heap.page_allocator) catch return;
-    defer env_map.deinit();
-
     // Always just try to enable bracketed paste, even if it was reported as not supported
     self.caps.bracketed_paste = true;
 
-    if (env_map.get("TMUX")) |_| {
-        self.in_tmux = true;
-        self.caps.unicode = .wcwidth;
-        self.caps.explicit_cursor_positioning = true;
-    } else if (env_map.get("TERM")) |term| {
-        if (std.mem.startsWith(u8, term, "tmux")) {
+    if (self.caps.rgb) {
+        self.caps.hyperlinks = true;
+    }
+
+    if (self.opts.remote) {
+        return;
+    }
+
+    var env_map = std.process.getEnvMap(std.heap.page_allocator) catch return;
+    defer env_map.deinit();
+
+    if (!self.term_info.from_xtversion) {
+        if (env_map.get("TMUX")) |_| {
             self.in_tmux = true;
             self.caps.unicode = .wcwidth;
             self.caps.explicit_cursor_positioning = true;
-        } else if (std.mem.startsWith(u8, term, "screen")) {
-            self.skip_graphics_query = true;
-            self.caps.unicode = .wcwidth;
-            self.caps.explicit_cursor_positioning = true;
-        }
-        if (std.mem.indexOf(u8, term, "alacritty") != null) {
-            self.caps.explicit_cursor_positioning = true;
+        } else if (env_map.get("TERM")) |term| {
+            if (std.mem.startsWith(u8, term, "tmux")) {
+                self.in_tmux = true;
+                self.caps.unicode = .wcwidth;
+                self.caps.explicit_cursor_positioning = true;
+            } else if (std.mem.startsWith(u8, term, "screen")) {
+                self.skip_graphics_query = true;
+                self.caps.unicode = .wcwidth;
+                self.caps.explicit_cursor_positioning = true;
+            }
+            if (std.mem.indexOf(u8, term, "alacritty") != null) {
+                self.caps.explicit_cursor_positioning = true;
+            }
         }
     }
 
@@ -294,26 +306,26 @@ fn checkEnvironmentOverrides(self: *Terminal) void {
                 self.term_info.version_len = ver_len;
             }
         }
-    }
 
-    if (env_map.get("TERM_PROGRAM")) |prog| {
-        if (std.mem.eql(u8, prog, "vscode")) {
-            self.caps.kitty_keyboard = false;
-            self.caps.kitty_graphics = false;
-            self.caps.unicode = .unicode;
-        } else if (std.mem.eql(u8, prog, "Apple_Terminal")) {
-            self.caps.unicode = .wcwidth;
-        } else if (std.mem.eql(u8, prog, "Alacritty")) {
-            self.caps.explicit_cursor_positioning = true;
+        if (env_map.get("TERM_PROGRAM")) |prog| {
+            if (std.mem.eql(u8, prog, "vscode")) {
+                self.caps.kitty_keyboard = false;
+                self.caps.kitty_graphics = false;
+                self.caps.unicode = .unicode;
+            } else if (std.mem.eql(u8, prog, "Apple_Terminal")) {
+                self.caps.unicode = .wcwidth;
+            } else if (std.mem.eql(u8, prog, "Alacritty")) {
+                self.caps.explicit_cursor_positioning = true;
+            }
         }
-    }
 
-    if (env_map.get("ALACRITTY_SOCKET") != null or env_map.get("ALACRITTY_LOG") != null) {
-        self.caps.explicit_cursor_positioning = true;
-        if (!self.term_info.from_xtversion and self.term_info.name_len == 0) {
-            const name = "Alacritty";
-            @memcpy(self.term_info.name[0..name.len], name);
-            self.term_info.name_len = name.len;
+        if (env_map.get("ALACRITTY_SOCKET") != null or env_map.get("ALACRITTY_LOG") != null) {
+            self.caps.explicit_cursor_positioning = true;
+            if (self.term_info.name_len == 0) {
+                const name = "Alacritty";
+                @memcpy(self.term_info.name[0..name.len], name);
+                self.term_info.name_len = name.len;
+            }
         }
     }
 
@@ -325,14 +337,16 @@ fn checkEnvironmentOverrides(self: *Terminal) void {
         }
     }
 
-    if (env_map.get("TERMUX_VERSION")) |_| {
-        self.caps.unicode = .wcwidth;
-    }
+    if (!self.term_info.from_xtversion) {
+        if (env_map.get("TERMUX_VERSION")) |_| {
+            self.caps.unicode = .wcwidth;
+        }
 
-    if (env_map.get("VHS_RECORD")) |_| {
-        self.caps.unicode = .wcwidth;
-        self.caps.kitty_keyboard = false;
-        self.caps.kitty_graphics = false;
+        if (env_map.get("VHS_RECORD")) |_| {
+            self.caps.unicode = .wcwidth;
+            self.caps.kitty_keyboard = false;
+            self.caps.kitty_graphics = false;
+        }
     }
 
     if (env_map.get("OPENTUI_FORCE_WCWIDTH")) |_| {
@@ -353,18 +367,45 @@ fn checkEnvironmentOverrides(self: *Terminal) void {
         }
     }
 
-    if (self.caps.rgb) {
-        self.caps.hyperlinks = true;
+    if (!self.caps.hyperlinks and self.term_info.from_xtversion) {
+        if (isHyperlinkTerm(self.getTerminalName())) {
+            self.caps.hyperlinks = true;
+        }
     }
 
-    if (env_map.get("TERM")) |term| {
-        if (std.mem.indexOf(u8, term, "ghostty") != null or
-            std.mem.indexOf(u8, term, "kitty") != null or
-            std.mem.indexOf(u8, term, "wezterm") != null or
-            std.mem.indexOf(u8, term, "alacritty") != null or
-            std.mem.indexOf(u8, term, "iterm") != null)
-        {
-            self.caps.hyperlinks = true;
+    if (!self.caps.hyperlinks and !self.term_info.from_xtversion) {
+        if (env_map.get("TERM")) |term| {
+            if (isHyperlinkTerm(term)) {
+                self.caps.hyperlinks = true;
+            }
+        }
+    }
+
+    if (!self.caps.osc52 and !self.term_info.from_xtversion) {
+        if (env_map.get("WT_SESSION") != null) {
+            self.caps.osc52 = true;
+        }
+    }
+
+    if (!self.caps.osc52 and !self.term_info.from_xtversion) {
+        if (self.in_tmux or env_map.get("STY") != null) {
+            self.caps.osc52 = true;
+        }
+    }
+
+    if (!self.caps.osc52 and !self.term_info.from_xtversion) {
+        if (env_map.get("TERM_PROGRAM")) |prog| {
+            if (isOsc52Term(prog)) {
+                self.caps.osc52 = true;
+            }
+        }
+    }
+
+    if (!self.caps.osc52 and !self.term_info.from_xtversion) {
+        if (env_map.get("TERM")) |term| {
+            if (isOsc52Term(term) or std.mem.indexOf(u8, term, "256color") != null or std.mem.indexOf(u8, term, "xterm") != null) {
+                self.caps.osc52 = true;
+            }
         }
     }
 }
@@ -548,6 +589,35 @@ pub fn processCapabilityResponse(self: *Terminal, response: []const u8) void {
             self.caps.kitty_graphics = true;
         }
     }
+
+    if (!self.caps.osc52 and isOsc52Term(response)) {
+        self.caps.osc52 = true;
+    }
+
+    if (!self.caps.hyperlinks and isHyperlinkTerm(response)) {
+        self.caps.hyperlinks = true;
+    }
+}
+
+fn isOsc52Term(value: []const u8) bool {
+    return std.ascii.indexOfIgnoreCase(value, "iterm") != null or
+        std.ascii.indexOfIgnoreCase(value, "kitty") != null or
+        std.ascii.indexOfIgnoreCase(value, "alacritty") != null or
+        std.ascii.indexOfIgnoreCase(value, "wezterm") != null or
+        std.ascii.indexOfIgnoreCase(value, "contour") != null or
+        std.ascii.indexOfIgnoreCase(value, "foot") != null or
+        std.ascii.indexOfIgnoreCase(value, "rio") != null or
+        std.ascii.indexOfIgnoreCase(value, "ghostty") != null or
+        std.ascii.indexOfIgnoreCase(value, "tmux") != null or
+        std.ascii.indexOfIgnoreCase(value, "screen") != null;
+}
+
+fn isHyperlinkTerm(value: []const u8) bool {
+    return std.ascii.indexOfIgnoreCase(value, "ghostty") != null or
+        std.ascii.indexOfIgnoreCase(value, "kitty") != null or
+        std.ascii.indexOfIgnoreCase(value, "wezterm") != null or
+        std.ascii.indexOfIgnoreCase(value, "alacritty") != null or
+        std.ascii.indexOfIgnoreCase(value, "iterm") != null;
 }
 
 pub fn getCapabilities(self: *Terminal) Capabilities {

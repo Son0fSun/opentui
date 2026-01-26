@@ -33,6 +33,12 @@ export interface ClipboardOptions {
    * - 'q' = query clipboard contents (not widely supported)
    */
   target?: "c" | "p" | "s" | "q"
+
+  /**
+   * Terminal capabilities from the native renderer.
+   * If provided, OSC 52 will only be attempted when osc52 is true.
+   */
+  capabilities?: { osc52?: boolean }
 }
 
 /**
@@ -60,8 +66,13 @@ export interface ClipboardOptions {
 export function copyToClipboard(text: string, options: ClipboardOptions = {}): boolean {
   const stream = options.stream ?? process.stdout
   const target = options.target ?? "c"
+  const capabilities = options.capabilities
 
   if (!stream.isTTY) {
+    return false
+  }
+
+  if (capabilities && !capabilities.osc52) {
     return false
   }
 
@@ -109,8 +120,13 @@ export function copyToClipboard(text: string, options: ClipboardOptions = {}): b
 export function clearClipboard(options: ClipboardOptions = {}): boolean {
   const stream = options.stream ?? process.stdout
   const target = options.target ?? "c"
+  const capabilities = options.capabilities
 
   if (!stream.isTTY) {
+    return false
+  }
+
+  if (capabilities && !capabilities.osc52) {
     return false
   }
 
@@ -139,54 +155,10 @@ export function clearClipboard(options: ClipboardOptions = {}): boolean {
 }
 
 /**
- * Check if the current environment likely supports OSC 52.
+ * Check if OSC 52 is supported based on native capabilities.
  *
- * This is a heuristic check based on environment variables and terminal type.
- * It cannot guarantee OSC 52 support, but can help determine if it's worth trying.
- *
- * @returns true if OSC 52 is likely supported
+ * @returns true if OSC 52 is supported
  */
-export function isOsc52Supported(): boolean {
-  // Not a TTY, definitely won't work
-  if (!process.stdout.isTTY) {
-    return false
-  }
-
-  const term = process.env["TERM"] || ""
-  const termProgram = process.env["TERM_PROGRAM"] || ""
-
-  // Known supporting terminals
-  const supportingTerminals = [
-    "iterm",
-    "iterm2",
-    "kitty",
-    "alacritty",
-    "wezterm",
-    "contour",
-    "foot",
-    "rio",
-    "ghostty",
-  ]
-
-  if (supportingTerminals.some((t) => termProgram.toLowerCase().includes(t))) {
-    return true
-  }
-
-  // Windows Terminal
-  if (process.env["WT_SESSION"]) {
-    return true
-  }
-
-  // tmux and screen support passthrough
-  if (process.env["TMUX"] || process.env["STY"]) {
-    return true
-  }
-
-  // xterm-256color and similar often support OSC 52
-  if (term.includes("256color") || term.includes("kitty") || term.includes("xterm")) {
-    return true
-  }
-
-  // Default to trying it - many modern terminals support OSC 52
-  return true
+export function isOsc52Supported(capabilities?: { osc52?: boolean }): boolean {
+  return capabilities?.osc52 ?? false
 }

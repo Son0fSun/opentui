@@ -94,7 +94,7 @@ function getOpenTUILib(libPath?: string) {
     },
     // Renderer management
     createRenderer: {
-      args: ["u32", "u32", "bool"],
+      args: ["u32", "u32", "bool", "bool"],
       returns: "ptr",
     },
     destroyRenderer: {
@@ -1259,7 +1259,7 @@ export interface CursorState {
 }
 
 export interface RenderLib {
-  createRenderer: (width: number, height: number, options?: { testing: boolean }) => Pointer | null
+  createRenderer: (width: number, height: number, options?: { testing?: boolean; remote?: boolean }) => Pointer | null
   destroyRenderer: (renderer: Pointer) => void
   setUseThread: (renderer: Pointer, useThread: boolean) => void
   setBackgroundColor: (renderer: Pointer, color: RGBA) => void
@@ -1810,8 +1810,10 @@ class FFIRenderLib implements RenderLib {
     this.opentui.symbols.setEventCallback(callbackPtr)
   }
 
-  public createRenderer(width: number, height: number, options: { testing: boolean } = { testing: false }) {
-    return this.opentui.symbols.createRenderer(width, height, options.testing)
+  public createRenderer(width: number, height: number, options: { testing?: boolean; remote?: boolean } = {}) {
+    const testing = options.testing ?? false
+    const remote = options.remote ?? false
+    return this.opentui.symbols.createRenderer(width, height, testing, remote)
   }
 
   public destroyRenderer(renderer: Pointer): void {
@@ -3340,6 +3342,7 @@ class FFIRenderLib implements RenderLib {
       sync: caps.sync,
       bracketed_paste: caps.bracketed_paste,
       hyperlinks: caps.hyperlinks,
+      osc52: caps.osc52,
       explicit_cursor_positioning: caps.explicit_cursor_positioning,
       terminal: {
         name: caps.term_name ?? "",

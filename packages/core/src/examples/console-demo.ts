@@ -187,11 +187,11 @@ export function run(renderer: CliRenderer): void {
     // Use OSC 52 escape sequence for clipboard - works over SSH and on all platforms
     // The terminal emulator handles the clipboard operation locally
     const { copyToClipboard } = require("../lib/clipboard")
-    const success = copyToClipboard(text)
+    const success = copyToClipboard(text, { capabilities: renderer.capabilities ?? undefined })
     if (success) {
       console.info(`Copied to clipboard: "${text.substring(0, 50)}${text.length > 50 ? "..." : ""}"`)
     } else {
-      console.warn("Clipboard copy failed - stdout is not a TTY")
+      console.warn("Clipboard copy failed - OSC 52 not supported or stdout is not a TTY")
     }
   }
 

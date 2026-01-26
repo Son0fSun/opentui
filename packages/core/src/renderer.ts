@@ -78,6 +78,7 @@ registerEnvVar({
 export interface CliRendererConfig {
   stdin?: NodeJS.ReadStream
   stdout?: NodeJS.WriteStream
+  remote?: boolean
   exitOnCtrlC?: boolean
   exitSignals?: NodeJS.Signals[]
   debounceDelay?: number
@@ -261,7 +262,7 @@ export async function createCliRenderer(config: CliRendererConfig = {}): Promise
     config.experimental_splitHeight && config.experimental_splitHeight > 0 ? config.experimental_splitHeight : height
 
   const ziglib = resolveRenderLib()
-  const rendererPtr = ziglib.createRenderer(width, renderHeight)
+  const rendererPtr = ziglib.createRenderer(width, renderHeight, { remote: config.remote ?? false })
   if (!rendererPtr) {
     throw new Error("Failed to create renderer")
   }

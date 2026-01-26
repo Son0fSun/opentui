@@ -1,7 +1,11 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const Terminal = @import("../terminal.zig");
 const utf8 = @import("../utf8.zig");
+
+extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+extern "c" fn unsetenv(name: [*:0]const u8) c_int;
 
 test "parseXtversion - kitty format" {
     var term = Terminal.init(.{});
@@ -11,6 +15,7 @@ test "parseXtversion - kitty format" {
     try testing.expectEqualStrings("kitty", term.getTerminalName());
     try testing.expectEqualStrings("0.40.1", term.getTerminalVersion());
     try testing.expect(term.term_info.from_xtversion);
+    try testing.expect(term.caps.osc52);
 }
 
 test "parseXtversion - ghostty format" {
@@ -21,6 +26,7 @@ test "parseXtversion - ghostty format" {
     try testing.expectEqualStrings("ghostty", term.getTerminalName());
     try testing.expectEqualStrings("1.1.3", term.getTerminalVersion());
     try testing.expect(term.term_info.from_xtversion);
+    try testing.expect(term.caps.osc52);
 }
 
 test "parseXtversion - tmux format" {
@@ -31,6 +37,7 @@ test "parseXtversion - tmux format" {
     try testing.expectEqualStrings("tmux", term.getTerminalName());
     try testing.expectEqualStrings("3.5a", term.getTerminalVersion());
     try testing.expect(term.term_info.from_xtversion);
+    try testing.expect(term.caps.osc52);
 }
 
 test "parseXtversion - with prefix data" {
@@ -53,6 +60,7 @@ test "parseXtversion - full kitty response" {
     try testing.expect(term.term_info.from_xtversion);
     try testing.expect(term.caps.kitty_keyboard);
     try testing.expect(term.caps.kitty_graphics);
+    try testing.expect(term.caps.osc52);
 }
 
 test "parseXtversion - full ghostty response" {
@@ -88,6 +96,34 @@ test "environment variables - should be overridden by xtversion" {
     try testing.expect(term.term_info.from_xtversion);
 }
 
+test "remote ignores env overrides but accepts capability responses" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    const tmux_name: [:0]const u8 = "TMUX";
+    const tmux_value: [:0]const u8 = "/tmp/tmux-1000/default,12345,0";
+    const prev_tmux = try setEnvVarTemp(testing.allocator, tmux_name, tmux_value);
+    defer restoreEnvVar(testing.allocator, tmux_name, prev_tmux);
+
+    const term_program_name: [:0]const u8 = "TERM_PROGRAM";
+    const term_program_value: [:0]const u8 = "iTerm.app";
+    const prev_term_program = try setEnvVarTemp(testing.allocator, term_program_name, term_program_value);
+    defer restoreEnvVar(testing.allocator, term_program_name, prev_term_program);
+
+    const wt_session_name: [:0]const u8 = "WT_SESSION";
+    const wt_session_value: [:0]const u8 = "test-session";
+    const prev_wt_session = try setEnvVarTemp(testing.allocator, wt_session_name, wt_session_value);
+    defer restoreEnvVar(testing.allocator, wt_session_name, prev_wt_session);
+
+    var term = Terminal.init(.{ .remote = true });
+
+    try testing.expect(!term.in_tmux);
+    try testing.expect(!term.caps.osc52);
+    try testing.expect(!term.caps.explicit_cursor_positioning);
+
+    term.processCapabilityResponse("\x1bP>|kitty(0.40.1)\x1b\\");
+    try testing.expect(term.caps.osc52);
+}
+
 test "parseXtversion - terminal name only" {
     var term = Terminal.init(.{});
     const response = "\x1bP>|wezterm\x1b\\";
@@ -96,6 +132,7 @@ test "parseXtversion - terminal name only" {
     try testing.expectEqualStrings("wezterm", term.getTerminalName());
     try testing.expectEqualStrings("", term.getTerminalVersion());
     try testing.expect(term.term_info.from_xtversion);
+    try testing.expect(term.caps.osc52);
 }
 
 test "parseXtversion - empty response" {
@@ -140,6 +177,33 @@ const TestWriter = struct {
         self.buffer.clearRetainingCapacity();
     }
 };
+
+fn setEnvVarTemp(allocator: std.mem.Allocator, name: [:0]const u8, value: [:0]const u8) !?[:0]u8 {
+    const name_slice: []const u8 = name[0..name.len];
+    var previous: ?[:0]u8 = null;
+
+    if (std.posix.getenv(name_slice)) |existing| {
+        const buffer = try allocator.alloc(u8, existing.len + 1);
+        @memcpy(buffer[0..existing.len], existing);
+        buffer[existing.len] = 0;
+        previous = buffer[0..existing.len :0];
+    }
+
+    if (setenv(name, value, 1) != 0) {
+        return error.SkipZigTest;
+    }
+
+    return previous;
+}
+
+fn restoreEnvVar(allocator: std.mem.Allocator, name: [:0]const u8, previous: ?[:0]u8) void {
+    if (previous) |value| {
+        _ = setenv(name, value, 1);
+        allocator.free(value[0 .. value.len + 1]);
+    } else {
+        _ = unsetenv(name);
+    }
+}
 
 test "queryTerminalSend - sends unwrapped queries when not in tmux" {
     // Note: This test may fail if running inside tmux since checkEnvironmentOverrides

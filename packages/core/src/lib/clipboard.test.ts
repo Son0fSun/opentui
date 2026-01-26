@@ -27,6 +27,16 @@ describe("clipboard", () => {
       expect(result).toBe(false)
     })
 
+    it("should return false when OSC 52 capability is disabled", () => {
+      const mockStream = new Writable({
+        write: () => true,
+      }) as NodeJS.WriteStream
+      mockStream.isTTY = true
+
+      const result = copyToClipboard("test", { stream: mockStream, capabilities: { osc52: false } })
+      expect(result).toBe(false)
+    })
+
     it("should write OSC52 sequence to TTY stream", () => {
       let written = ""
       const mockStream = new Writable({
@@ -146,51 +156,19 @@ describe("clipboard", () => {
   })
 
   describe("isOsc52Supported", () => {
-    it("should return false when stdout is not a TTY", () => {
-      const originalIsTTY = process.stdout.isTTY
-      ;(process.stdout as any).isTTY = false
-
+    it("should return false when capabilities are missing", () => {
       const result = isOsc52Supported()
-
-      ;(process.stdout as any).isTTY = originalIsTTY
       expect(result).toBe(false)
     })
 
-    it("should return true for known supporting terminals", () => {
-      const originalIsTTY = process.stdout.isTTY
-      const originalTermProgram = process.env["TERM_PROGRAM"]
-      ;(process.stdout as any).isTTY = true
-      process.env["TERM_PROGRAM"] = "iTerm.app"
-
-      const result = isOsc52Supported()
-
-      ;(process.stdout as any).isTTY = originalIsTTY
-      process.env["TERM_PROGRAM"] = originalTermProgram
+    it("should return true when osc52 capability is set", () => {
+      const result = isOsc52Supported({ osc52: true })
       expect(result).toBe(true)
     })
 
-    it("should return true when in tmux", () => {
-      const originalIsTTY = process.stdout.isTTY
-      ;(process.stdout as any).isTTY = true
-      process.env["TMUX"] = "/tmp/tmux-1000/default,12345,0"
-
-      const result = isOsc52Supported()
-
-      ;(process.stdout as any).isTTY = originalIsTTY
-      expect(result).toBe(true)
-    })
-
-    it("should return true for Windows Terminal", () => {
-      const originalIsTTY = process.stdout.isTTY
-      const originalWtSession = process.env["WT_SESSION"]
-      ;(process.stdout as any).isTTY = true
-      process.env["WT_SESSION"] = "some-guid"
-
-      const result = isOsc52Supported()
-
-      ;(process.stdout as any).isTTY = originalIsTTY
-      process.env["WT_SESSION"] = originalWtSession
-      expect(result).toBe(true)
+    it("should return false when osc52 capability is false", () => {
+      const result = isOsc52Supported({ osc52: false })
+      expect(result).toBe(false)
     })
   })
 })
