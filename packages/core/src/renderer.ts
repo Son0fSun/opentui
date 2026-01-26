@@ -68,6 +68,13 @@ registerEnvVar({
   default: false,
 })
 
+registerEnvVar({
+  name: "OTUI_SHOW_STATS",
+  description: "Show the debug overlay at startup.",
+  type: "boolean",
+  default: false,
+})
+
 export interface CliRendererConfig {
   stdin?: NodeJS.ReadStream
   stdout?: NodeJS.WriteStream
@@ -180,7 +187,7 @@ export class MouseEvent {
   }
   public readonly scroll?: ScrollInfo
   public readonly target: Renderable | null
-  public readonly isSelecting?: boolean
+  public readonly isDragging?: boolean
   private _propagationStopped: boolean = false
   private _defaultPrevented: boolean = false
 
@@ -192,7 +199,7 @@ export class MouseEvent {
     return this._defaultPrevented
   }
 
-  constructor(target: Renderable | null, attributes: RawMouseEvent & { source?: Renderable; isSelecting?: boolean }) {
+  constructor(target: Renderable | null, attributes: RawMouseEvent & { source?: Renderable; isDragging?: boolean }) {
     this.target = target
     this.type = attributes.type
     this.button = attributes.button
@@ -201,7 +208,7 @@ export class MouseEvent {
     this.modifiers = attributes.modifiers
     this.scroll = attributes.scroll
     this.source = attributes.source
-    this.isSelecting = attributes.isSelecting
+    this.isDragging = attributes.isDragging
   }
 
   public stopPropagation(): void {
@@ -357,7 +364,7 @@ export class CliRenderer extends EventEmitter implements RenderContext {
     frameCallbackTime: 0,
   }
   public debugOverlay = {
-    enabled: false,
+    enabled: env.OTUI_SHOW_STATS,
     corner: DebugOverlayCorner.bottomRight,
   }
 
@@ -489,8 +496,8 @@ export class CliRenderer extends EventEmitter implements RenderContext {
     this.stdout = stdout
     this.realStdoutWrite = stdout.write
     this.lib = lib
-    this._terminalWidth = stdout.columns
-    this._terminalHeight = stdout.rows
+    this._terminalWidth = stdout.columns ?? width
+    this._terminalHeight = stdout.rows ?? height
     this.width = width
     this.height = height
     this._useThread = config.useThread === undefined ? false : config.useThread
@@ -505,7 +512,17 @@ export class CliRenderer extends EventEmitter implements RenderContext {
 
     this.rendererPtr = rendererPtr
     this.exitOnCtrlC = config.exitOnCtrlC === undefined ? true : config.exitOnCtrlC
-    this.exitSignals = config.exitSignals || ["SIGINT", "SIGTERM", "SIGQUIT", "SIGABRT"]
+    this.exitSignals = config.exitSignals || [
+      "SIGINT", // Ctrl+C
+      "SIGTERM", // Termination signal
+      "SIGQUIT", // Ctrl+\
+      "SIGABRT", // Abort signal
+      "SIGHUP", // Hangup (terminal closed)
+      "SIGBREAK", // Ctrl+Break on Windows
+      "SIGPIPE", // Broken pipe
+      "SIGBUS", // Bus error
+      "SIGFPE", // Floating point exception
+    ]
     this.resizeDebounceDelay = config.debounceDelay || 100
     this.targetFps = config.targetFps || 30
     this.maxFps = config.maxFps || 60
@@ -970,6 +987,15 @@ export class CliRenderer extends EventEmitter implements RenderContext {
     this.lib.setupTerminal(this.rendererPtr, this._useAlternateScreen)
     this._capabilities = this.lib.getTerminalCapabilities(this.rendererPtr)
 
+    if (this.debugOverlay.enabled) {
+      this.lib.setDebugOverlay(this.rendererPtr, true, this.debugOverlay.corner)
+      if (!this.memorySnapshotInterval) {
+        this.memorySnapshotInterval = 3000
+        this.startMemorySnapshotTimer()
+        this.automaticMemorySnapshot = true
+      }
+    }
+
     this.capabilityTimeoutId = setTimeout(() => {
       this.capabilityTimeoutId = null
       this.removeInputHandler(this.capabilityHandler)
@@ -1124,7 +1150,7 @@ export class CliRenderer extends EventEmitter implements RenderContext {
       if (
         mouseEvent.type === "down" &&
         mouseEvent.button === MouseButton.LEFT &&
-        !this.currentSelection?.isSelecting &&
+        !this.currentSelection?.isDragging &&
         !mouseEvent.modifiers.ctrl
       ) {
         if (
@@ -1140,20 +1166,20 @@ export class CliRenderer extends EventEmitter implements RenderContext {
         }
       }
 
-      if (mouseEvent.type === "drag" && this.currentSelection?.isSelecting) {
+      if (mouseEvent.type === "drag" && this.currentSelection?.isDragging) {
         this.updateSelection(maybeRenderable, mouseEvent.x, mouseEvent.y)
 
         if (maybeRenderable) {
-          const event = new MouseEvent(maybeRenderable, { ...mouseEvent, isSelecting: true })
+          const event = new MouseEvent(maybeRenderable, { ...mouseEvent, isDragging: true })
           maybeRenderable.processMouseEvent(event)
         }
 
         return true
       }
 
-      if (mouseEvent.type === "up" && this.currentSelection?.isSelecting) {
+      if (mouseEvent.type === "up" && this.currentSelection?.isDragging) {
         if (maybeRenderable) {
-          const event = new MouseEvent(maybeRenderable, { ...mouseEvent, isSelecting: true })
+          const event = new MouseEvent(maybeRenderable, { ...mouseEvent, isDragging: true })
           maybeRenderable.processMouseEvent(event)
         }
 
@@ -1163,7 +1189,7 @@ export class CliRenderer extends EventEmitter implements RenderContext {
 
       if (mouseEvent.type === "down" && mouseEvent.button === MouseButton.LEFT && this.currentSelection) {
         if (mouseEvent.modifiers.ctrl) {
-          this.currentSelection.isSelecting = true
+          this.currentSelection.isDragging = true
           this.updateSelection(maybeRenderable, mouseEvent.x, mouseEvent.y)
           return true
         }
@@ -1947,10 +1973,19 @@ export class CliRenderer extends EventEmitter implements RenderContext {
     this.notifySelectablesOfSelectionChange()
   }
 
-  public updateSelection(currentRenderable: Renderable | undefined, x: number, y: number): void {
+  public updateSelection(
+    currentRenderable: Renderable | undefined,
+    x: number,
+    y: number,
+    options?: { finishDragging?: boolean },
+  ): void {
     if (this.currentSelection) {
       this.currentSelection.isStart = false
       this.currentSelection.focus = { x, y }
+
+      if (options?.finishDragging) {
+        this.currentSelection.isDragging = false
+      }
 
       if (this.selectionContainers.length > 0) {
         const currentContainer = this.selectionContainers[this.selectionContainers.length - 1]
@@ -1977,7 +2012,7 @@ export class CliRenderer extends EventEmitter implements RenderContext {
   }
 
   public requestSelectionUpdate(): void {
-    if (this.currentSelection?.isSelecting) {
+    if (this.currentSelection?.isDragging) {
       const pointer = this._latestPointer
 
       const maybeRenderableId = this.hitTest(pointer.x, pointer.y)
@@ -1998,7 +2033,7 @@ export class CliRenderer extends EventEmitter implements RenderContext {
 
   private finishSelection(): void {
     if (this.currentSelection) {
-      this.currentSelection.isSelecting = false
+      this.currentSelection.isDragging = false
       this.emit("selection", this.currentSelection)
       // Notify renderables that selection is finished (no longer dragging)
       this.notifySelectablesOfSelectionChange()
