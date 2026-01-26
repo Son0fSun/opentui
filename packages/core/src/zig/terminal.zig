@@ -385,26 +385,24 @@ fn checkEnvironmentOverrides(self: *Terminal) void {
         if (env_map.get("WT_SESSION") != null) {
             self.caps.osc52 = true;
         }
-    }
 
-    if (!self.caps.osc52 and !self.term_info.from_xtversion) {
-        if (self.in_tmux or env_map.get("STY") != null) {
+        if (!self.caps.osc52 and (self.in_tmux or env_map.get("STY") != null)) {
             self.caps.osc52 = true;
         }
-    }
 
-    if (!self.caps.osc52 and !self.term_info.from_xtversion) {
-        if (env_map.get("TERM_PROGRAM")) |prog| {
-            if (isOsc52Term(prog)) {
-                self.caps.osc52 = true;
+        if (!self.caps.osc52) {
+            if (env_map.get("TERM_PROGRAM")) |prog| {
+                if (isOsc52Term(prog)) {
+                    self.caps.osc52 = true;
+                }
             }
         }
-    }
 
-    if (!self.caps.osc52 and !self.term_info.from_xtversion) {
-        if (env_map.get("TERM")) |term| {
-            if (isOsc52Term(term) or std.mem.indexOf(u8, term, "256color") != null or std.mem.indexOf(u8, term, "xterm") != null) {
-                self.caps.osc52 = true;
+        if (!self.caps.osc52) {
+            if (env_map.get("TERM")) |term| {
+                if (isOsc52Term(term) or std.mem.indexOf(u8, term, "256color") != null or std.mem.indexOf(u8, term, "xterm") != null) {
+                    self.caps.osc52 = true;
+                }
             }
         }
     }
