@@ -1,21 +1,27 @@
-import { describe, expect, it, beforeEach, afterEach } from "bun:test"
+import { describe, expect, it, beforeEach } from "bun:test"
 import { Clipboard, ClipboardTarget } from "./clipboard"
 
 describe("clipboard", () => {
-  const originalEnv = { ...process.env }
+  const createMockAdapter = (options: { supported?: boolean } = {}) => {
+    let lastTarget: number | null = null
+    let lastPayload: Uint8Array | null = null
 
-  const createClipboard = (options: { isTTY?: boolean; capabilities?: { osc52?: boolean } } = {}) => {
-    let written = ""
-    const clipboard = new Clipboard({
-      isTTY: () => options.isTTY ?? true,
-      write: (sequence) => {
-        written = sequence
-        return true
+    const adapter = {
+      copyToClipboard: (target: number, payload: Uint8Array): boolean => {
+        lastTarget = target
+        lastPayload = payload
+        return options.supported ?? true
       },
-      getCapabilities: () => options.capabilities,
-    })
+      isOsc52Supported: (): boolean => {
+        return options.supported ?? true
+      },
+    }
 
-    return { clipboard, getWritten: () => written }
+    return {
+      adapter,
+      getLastTarget: () => lastTarget,
+      getLastPayload: () => lastPayload,
+    }
   }
 
   beforeEach(() => {
@@ -24,104 +30,77 @@ describe("clipboard", () => {
     delete process.env["STY"]
   })
 
-  afterEach(() => {
-    // Restore original environment
-    process.env = { ...originalEnv }
-  })
-
   describe("copyToClipboard", () => {
-    it("should return false when stream is not a TTY", () => {
-      const { clipboard } = createClipboard({ isTTY: false })
+    it("should return false when OSC 52 is not supported", () => {
+      const { adapter } = createMockAdapter({ supported: false })
+      const clipboard = new Clipboard(adapter)
       const result = clipboard.copyToClipboard("test")
       expect(result).toBe(false)
     })
 
-    it("should return false when OSC 52 capability is disabled", () => {
-      const { clipboard } = createClipboard({ isTTY: true, capabilities: { osc52: false } })
+    it("should return true when OSC 52 is supported", () => {
+      const { adapter } = createMockAdapter({ supported: true })
+      const clipboard = new Clipboard(adapter)
       const result = clipboard.copyToClipboard("test")
-      expect(result).toBe(false)
-    })
-
-    it("should write OSC52 sequence to TTY stream", () => {
-      const { clipboard, getWritten } = createClipboard({ isTTY: true })
-      const result = clipboard.copyToClipboard("hello")
-      const written = getWritten()
-
       expect(result).toBe(true)
-      expect(written.startsWith("\x1b]52;c;")).toBe(true)
-      expect(written).toContain(Buffer.from("hello").toString("base64"))
-      expect(written.endsWith("\x1b\\")).toBe(true)
+    })
+
+    it("should encode text as base64 and delegate to adapter", () => {
+      const { adapter, getLastTarget, getLastPayload } = createMockAdapter()
+      const clipboard = new Clipboard(adapter)
+      clipboard.copyToClipboard("hello")
+
+      expect(getLastTarget()).toBe(ClipboardTarget.Clipboard)
+      const payload = getLastPayload()
+      expect(payload).not.toBeNull()
+      const decoded = new TextDecoder().decode(payload!)
+      expect(decoded).toBe(Buffer.from("hello").toString("base64"))
     })
 
     it("should support different selection targets", () => {
-      const { clipboard, getWritten } = createClipboard({ isTTY: true })
+      const { adapter, getLastTarget } = createMockAdapter()
+      const clipboard = new Clipboard(adapter)
       clipboard.copyToClipboard("test", ClipboardTarget.Primary)
-      const written = getWritten()
-      expect(written.startsWith("\x1b]52;p;")).toBe(true)
-    })
+      expect(getLastTarget()).toBe(ClipboardTarget.Primary)
 
-    it("should wrap in DCS passthrough for tmux", () => {
-      process.env["TMUX"] = "/tmp/tmux-1000/default,12345,0"
-      const { clipboard, getWritten } = createClipboard({ isTTY: true })
-      clipboard.copyToClipboard("test")
-      const written = getWritten()
+      clipboard.copyToClipboard("test", ClipboardTarget.Secondary)
+      expect(getLastTarget()).toBe(ClipboardTarget.Secondary)
 
-      expect(written.startsWith("\x1bPtmux;")).toBe(true)
-      expect(written.endsWith("\x1b\\")).toBe(true)
-      expect(written).toContain("\x1b\x1b")
-    })
-
-    it("should wrap in DCS passthrough for GNU Screen", () => {
-      process.env["STY"] = "12345.pts-0.hostname"
-      const { clipboard, getWritten } = createClipboard({ isTTY: true })
-      clipboard.copyToClipboard("test")
-      const written = getWritten()
-
-      expect(written.startsWith("\x1bP")).toBe(true)
-      expect(written.startsWith("\x1bPtmux;")).toBe(false)
-      expect(written.endsWith("\x1b\\")).toBe(true)
-    })
-
-    it("should handle nested tmux sessions", () => {
-      // Nested tmux has multiple commas in TMUX env var
-      process.env["TMUX"] = "/tmp/tmux-1000/default,12345,0,/tmp/tmux-1000/inner,67890,1"
-      const { clipboard, getWritten } = createClipboard({ isTTY: true })
-      clipboard.copyToClipboard("test")
-      const written = getWritten()
-
-      const passthroughCount = (written.match(/\x1bPtmux;/g) || []).length
-      expect(passthroughCount).toBeGreaterThan(1)
+      clipboard.copyToClipboard("test", ClipboardTarget.Query)
+      expect(getLastTarget()).toBe(ClipboardTarget.Query)
     })
   })
 
   describe("clearClipboard", () => {
-    it("should write empty OSC52 sequence", () => {
-      const { clipboard, getWritten } = createClipboard({ isTTY: true })
+    it("should return false when OSC 52 is not supported", () => {
+      const { adapter } = createMockAdapter({ supported: false })
+      const clipboard = new Clipboard(adapter)
       const result = clipboard.clearClipboard()
-      const written = getWritten()
+      expect(result).toBe(false)
+    })
 
-      expect(result).toBe(true)
-      expect(written).toBe("\x1b]52;c;\x1b\\")
+    it("should send empty payload to adapter", () => {
+      const { adapter, getLastPayload } = createMockAdapter()
+      const clipboard = new Clipboard(adapter)
+      clipboard.clearClipboard()
+
+      const payload = getLastPayload()
+      expect(payload).not.toBeNull()
+      expect(payload!.length).toBe(0)
     })
   })
 
   describe("isOsc52Supported", () => {
-    it("should return false when capabilities are missing", () => {
-      const { clipboard } = createClipboard()
-      const result = clipboard.isOsc52Supported()
-      expect(result).toBe(false)
+    it("should return false when adapter reports not supported", () => {
+      const { adapter } = createMockAdapter({ supported: false })
+      const clipboard = new Clipboard(adapter)
+      expect(clipboard.isOsc52Supported()).toBe(false)
     })
 
-    it("should return true when osc52 capability is set", () => {
-      const { clipboard } = createClipboard({ capabilities: { osc52: true } })
-      const result = clipboard.isOsc52Supported()
-      expect(result).toBe(true)
-    })
-
-    it("should return false when osc52 capability is false", () => {
-      const { clipboard } = createClipboard({ capabilities: { osc52: false } })
-      const result = clipboard.isOsc52Supported()
-      expect(result).toBe(false)
+    it("should return true when adapter reports supported", () => {
+      const { adapter } = createMockAdapter({ supported: true })
+      const clipboard = new Clipboard(adapter)
+      expect(clipboard.isOsc52Supported()).toBe(true)
     })
   })
 })
