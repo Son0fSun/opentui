@@ -282,6 +282,22 @@ export fn setTerminalTitle(rendererPtr: *renderer.CliRenderer, titlePtr: [*]cons
     rendererPtr.setTerminalTitle(title);
 }
 
+export fn copyToClipboard(rendererPtr: *renderer.CliRenderer, target: u8, payloadPtr: [*]const u8, payloadLen: usize) bool {
+    const targetEnum: terminal.ClipboardTarget = switch (target) {
+        0 => .clipboard,
+        1 => .primary,
+        2 => .secondary,
+        3 => .query,
+        else => .clipboard,
+    };
+    const payload = payloadPtr[0..payloadLen];
+    return rendererPtr.copyToClipboard(targetEnum, payload);
+}
+
+export fn isOsc52Supported(rendererPtr: *renderer.CliRenderer) bool {
+    return rendererPtr.isOsc52Supported();
+}
+
 // Buffer functions
 export fn bufferClear(bufferPtr: *buffer.OptimizedBuffer, bg: [*]const f32) void {
     bufferPtr.clear(utils.f32PtrToRGBA(bg), null) catch {};

@@ -43,6 +43,22 @@ pub const CursorStyle = enum {
     underline,
 };
 
+pub const ClipboardTarget = enum {
+    clipboard, // "c"
+    primary, // "p"
+    secondary, // "s"
+    query, // "q"
+
+    pub fn toChar(self: ClipboardTarget) u8 {
+        return switch (self) {
+            .clipboard => 'c',
+            .primary => 'p',
+            .secondary => 's',
+            .query => 'q',
+        };
+    }
+};
+
 pub const Options = struct {
     // Kitty keyboard protocol flags (progressive enhancement):
     // See: https://sw.kovidgoyal.net/kitty/keyboard-protocol/#progressive-enhancement
@@ -668,6 +684,103 @@ pub fn setTerminalTitle(_: *Terminal, tty: anytype, title: []const u8) void {
     // For Windows, we might need to use different approach, but ANSI sequences work in Windows Terminal, ConPTY, etc.
     // For other platforms, ANSI OSC sequences work reliably
     ansi.ANSI.setTerminalTitleOutput(tty, title) catch {};
+}
+
+/// Write OSC 52 clipboard sequence to the terminal
+/// Supports tmux/screen passthrough, including nested tmux sessions
+pub fn writeClipboard(self: *Terminal, tty: anytype, target: ClipboardTarget, payload: []const u8) !void {
+    if (!self.canWriteClipboard()) {
+        return error.NotSupported;
+    }
+
+    var buf: [1024]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    const writer = stream.writer();
+
+    // Build OSC 52 sequence: ESC]52;<target>;<payload>ESC\
+    try writer.writeAll("\x1b]52;");
+    try writer.writeByte(target.toChar());
+    try writer.writeByte(';');
+    try writer.writeAll(payload);
+    try writer.writeAll("\x1b\\");
+
+    const osc52 = stream.getWritten();
+
+    // Check for tmux/screen and wrap accordingly
+    var env_map = std.process.getEnvMap(std.heap.page_allocator) catch return;
+    defer env_map.deinit();
+
+    if (env_map.get("TMUX")) |_| {
+        // tmux requires DCS passthrough with tmux; prefix
+        // Count nesting level by commas in TMUX value
+        const tmux_value = env_map.get("TMUX").?;
+        var tmux_level: u32 = 1;
+        for (tmux_value) |c| {
+            if (c == ',') tmux_level += 1;
+        }
+
+        // Build wrapped sequence
+        var wrapped_buf: [4096]u8 = undefined;
+
+        var current = osc52;
+        var i: u32 = 0;
+        while (i < tmux_level) : (i += 1) {
+            // Double all ESC characters
+            var doubled_buf: [2048]u8 = undefined;
+            var doubled_stream = std.io.fixedBufferStream(&doubled_buf);
+            const doubled_writer = doubled_stream.writer();
+            for (current) |c| {
+                if (c == '\x1b') {
+                    try doubled_writer.writeByte('\x1b');
+                }
+                try doubled_writer.writeByte(c);
+            }
+            const doubled = doubled_stream.getWritten();
+
+            // Wrap in DCS with tmux; prefix
+            var wrapped_stream = std.io.fixedBufferStream(&wrapped_buf);
+            const wrap_writer = wrapped_stream.writer();
+            try wrap_writer.writeAll("\x1bPtmux;");
+            try wrap_writer.writeAll(doubled);
+            try wrap_writer.writeAll("\x1b\\");
+            current = wrapped_stream.getWritten();
+        }
+
+        try tty.writeAll(current);
+    } else if (env_map.get("STY")) |_| {
+        // GNU Screen requires DCS passthrough without the tmux; prefix
+        var wrapped_buf: [2048]u8 = undefined;
+        var wrapped_stream = std.io.fixedBufferStream(&wrapped_buf);
+        const wrapped_writer = wrapped_stream.writer();
+
+        // Double all ESC characters
+        for (osc52) |c| {
+            if (c == '\x1b') {
+                try wrapped_writer.writeByte('\x1b');
+            }
+            try wrapped_writer.writeByte(c);
+        }
+        const doubled = wrapped_stream.getWritten();
+
+        // Wrap in DCS
+        try tty.writeAll("\x1bP");
+        try tty.writeAll(doubled);
+        try tty.writeAll("\x1b\\");
+    } else {
+        try tty.writeAll(osc52);
+    }
+}
+
+/// Check if OSC 52 clipboard is supported
+pub fn isOsc52Supported(self: *Terminal) bool {
+    return self.caps.osc52;
+}
+
+/// Check if we can write to the clipboard (TTY and OSC 52 supported)
+fn canWriteClipboard(self: *Terminal) bool {
+    // In a real TTY environment, we'd check isTTY here
+    // For now, we just check if OSC 52 is supported
+    return self.caps.osc52;
 }
 
 /// Parse xtversion response string and extract terminal name and version

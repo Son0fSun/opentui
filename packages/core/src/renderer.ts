@@ -528,12 +528,12 @@ export class CliRenderer extends EventEmitter implements RenderContext {
     ]
 
     this.clipboard = new Clipboard({
-      isTTY: () => !!this.stdout.isTTY,
-      write: (sequence) => {
-        this.writeOut(sequence)
-        return true
+      copyToClipboard: (target: number, payload: Uint8Array) => {
+        return this.lib.copyToClipboard(this.rendererPtr, target, payload)
       },
-      getCapabilities: () => this._capabilities,
+      isOsc52Supported: () => {
+        return this.lib.isOsc52Supported(this.rendererPtr)
+      },
     })
     this.resizeDebounceDelay = config.debounceDelay || 100
     this.targetFps = config.targetFps || 30
