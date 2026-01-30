@@ -178,7 +178,7 @@ const TestWriter = struct {
     }
 };
 
-fn setEnvVarTemp(allocator: std.mem.Allocator, name: [:0]const u8, value: [:0]const u8) !?[:0]u8 {
+fn setEnvVarTemp(allocator: std.mem.Allocator, name: [:0]const u8, value: ?[:0]const u8) !?[:0]u8 {
     const name_slice: []const u8 = name[0..name.len];
     var previous: ?[:0]u8 = null;
 
@@ -189,8 +189,12 @@ fn setEnvVarTemp(allocator: std.mem.Allocator, name: [:0]const u8, value: [:0]co
         previous = buffer[0..existing.len :0];
     }
 
-    if (setenv(name, value, 1) != 0) {
-        return error.SkipZigTest;
+    if (value) |v| {
+        if (setenv(name, v, 1) != 0) {
+            return error.SkipZigTest;
+        }
+    } else {
+        _ = unsetenv(name);
     }
 
     return previous;
@@ -441,4 +445,189 @@ test "processCapabilityResponse - ghostty does not set explicit_cursor_positioni
     term.processCapabilityResponse(response);
 
     try testing.expect(!term.caps.explicit_cursor_positioning);
+}
+
+// ============================================================================
+// CLIPBOARD (OSC 52) TESTS
+// ============================================================================
+
+test "writeClipboard - generates basic OSC52 sequence" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    // Clear TMUX/STY to ensure we're not in a multiplexer
+    const tmux_name: [:0]const u8 = "TMUX";
+    const prev_tmux = try setEnvVarTemp(testing.allocator, tmux_name, null);
+    defer restoreEnvVar(testing.allocator, tmux_name, prev_tmux);
+
+    const sty_name: [:0]const u8 = "STY";
+    const prev_sty = try setEnvVarTemp(testing.allocator, sty_name, null);
+    defer restoreEnvVar(testing.allocator, sty_name, prev_sty);
+
+    var term = Terminal.init(.{});
+    term.caps.osc52 = true;
+
+    var writer = TestWriter.init(testing.allocator);
+    defer writer.deinit();
+
+    try term.writeClipboard(&writer, .clipboard, "aGVsbG8=");
+
+    const output = writer.getWritten();
+    // Should be: ESC]52;c;aGVsbG8=ESC\
+    try testing.expectEqualStrings("\x1b]52;c;aGVsbG8=\x1b\\", output);
+}
+
+test "writeClipboard - supports different targets" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    // Clear TMUX/STY to ensure we're not in a multiplexer
+    const tmux_name: [:0]const u8 = "TMUX";
+    const prev_tmux = try setEnvVarTemp(testing.allocator, tmux_name, null);
+    defer restoreEnvVar(testing.allocator, tmux_name, prev_tmux);
+
+    const sty_name: [:0]const u8 = "STY";
+    const prev_sty = try setEnvVarTemp(testing.allocator, sty_name, null);
+    defer restoreEnvVar(testing.allocator, sty_name, prev_sty);
+
+    var term = Terminal.init(.{});
+    term.caps.osc52 = true;
+
+    var writer = TestWriter.init(testing.allocator);
+    defer writer.deinit();
+
+    try term.writeClipboard(&writer, .primary, "test");
+    try testing.expect(std.mem.indexOf(u8, writer.getWritten(), "\x1b]52;p;") != null);
+
+    writer.reset();
+    try term.writeClipboard(&writer, .secondary, "test");
+    try testing.expect(std.mem.indexOf(u8, writer.getWritten(), "\x1b]52;s;") != null);
+
+    writer.reset();
+    try term.writeClipboard(&writer, .query, "test");
+    try testing.expect(std.mem.indexOf(u8, writer.getWritten(), "\x1b]52;q;") != null);
+}
+
+test "writeClipboard - returns error when OSC52 not supported" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var term = Terminal.init(.{});
+    term.caps.osc52 = false;
+
+    var writer = TestWriter.init(testing.allocator);
+    defer writer.deinit();
+
+    const result = term.writeClipboard(&writer, .clipboard, "test");
+    try testing.expectError(error.NotSupported, result);
+}
+
+test "writeClipboard - wraps in DCS passthrough for tmux" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    // Clear STY to ensure TMUX takes precedence
+    const sty_name: [:0]const u8 = "STY";
+    const prev_sty = try setEnvVarTemp(testing.allocator, sty_name, null);
+    defer restoreEnvVar(testing.allocator, sty_name, prev_sty);
+
+    const tmux_name: [:0]const u8 = "TMUX";
+    const tmux_value: [:0]const u8 = "/tmp/tmux-1000/default,12345,0";
+    const prev_tmux = try setEnvVarTemp(testing.allocator, tmux_name, tmux_value);
+    defer restoreEnvVar(testing.allocator, tmux_name, prev_tmux);
+
+    var term = Terminal.init(.{});
+    term.caps.osc52 = true;
+
+    var writer = TestWriter.init(testing.allocator);
+    defer writer.deinit();
+
+    try term.writeClipboard(&writer, .clipboard, "test");
+
+    const output = writer.getWritten();
+    // Should start with tmux DCS wrapper
+    try testing.expect(std.mem.startsWith(u8, output, "\x1bPtmux;"));
+    // Should end with DCS terminator
+    try testing.expect(std.mem.endsWith(u8, output, "\x1b\\"));
+    // Should have doubled ESC characters inside
+    try testing.expect(std.mem.indexOf(u8, output, "\x1b\x1b") != null);
+}
+
+test "writeClipboard - wraps in DCS passthrough for GNU Screen" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    // Must clear TMUX first, as TMUX takes precedence over STY
+    const tmux_name: [:0]const u8 = "TMUX";
+    const prev_tmux = try setEnvVarTemp(testing.allocator, tmux_name, null);
+    defer restoreEnvVar(testing.allocator, tmux_name, prev_tmux);
+
+    const sty_name: [:0]const u8 = "STY";
+    const sty_value: [:0]const u8 = "12345.pts-0.hostname";
+    const prev_sty = try setEnvVarTemp(testing.allocator, sty_name, sty_value);
+    defer restoreEnvVar(testing.allocator, sty_name, prev_sty);
+
+    var term = Terminal.init(.{});
+    term.caps.osc52 = true;
+
+    var writer = TestWriter.init(testing.allocator);
+    defer writer.deinit();
+
+    try term.writeClipboard(&writer, .clipboard, "test");
+
+    const output = writer.getWritten();
+    // Should start with DCS (but not tmux prefix)
+    try testing.expect(std.mem.startsWith(u8, output, "\x1bP"));
+    try testing.expect(!std.mem.startsWith(u8, output, "\x1bPtmux;"));
+    // Should end with DCS terminator
+    try testing.expect(std.mem.endsWith(u8, output, "\x1b\\"));
+    // Should have doubled ESC characters
+    try testing.expect(std.mem.indexOf(u8, output, "\x1b\x1b") != null);
+}
+
+test "writeClipboard - handles nested tmux sessions" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    // Clear STY to ensure TMUX takes precedence
+    const sty_name: [:0]const u8 = "STY";
+    const prev_sty = try setEnvVarTemp(testing.allocator, sty_name, null);
+    defer restoreEnvVar(testing.allocator, sty_name, prev_sty);
+
+    // Nested tmux has multiple commas in TMUX env var
+    const tmux_name: [:0]const u8 = "TMUX";
+    const tmux_value: [:0]const u8 = "/tmp/tmux-1000/default,12345,0,/tmp/tmux-1000/inner,67890,1";
+    const prev_tmux = try setEnvVarTemp(testing.allocator, tmux_name, tmux_value);
+    defer restoreEnvVar(testing.allocator, tmux_name, prev_tmux);
+
+    var term = Terminal.init(.{});
+    term.caps.osc52 = true;
+
+    var writer = TestWriter.init(testing.allocator);
+    defer writer.deinit();
+
+    try term.writeClipboard(&writer, .clipboard, "test");
+
+    const output = writer.getWritten();
+    // Should have multiple tmux DCS wrappers (one per nesting level)
+    const passthrough_count = countSubstring(output, "\x1bPtmux;");
+    try testing.expect(passthrough_count >= 2);
+}
+
+test "isOsc52Supported - returns correct value" {
+    var term = Terminal.init(.{});
+
+    term.caps.osc52 = false;
+    try testing.expect(!term.isOsc52Supported());
+
+    term.caps.osc52 = true;
+    try testing.expect(term.isOsc52Supported());
+}
+
+fn countSubstring(haystack: []const u8, needle: []const u8) usize {
+    var count: usize = 0;
+    var i: usize = 0;
+    while (i < haystack.len) {
+        if (std.mem.startsWith(u8, haystack[i..], needle)) {
+            count += 1;
+            i += needle.len;
+        } else {
+            i += 1;
+        }
+    }
+    return count;
 }
