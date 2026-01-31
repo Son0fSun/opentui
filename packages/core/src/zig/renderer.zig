@@ -1241,10 +1241,6 @@ pub const CliRenderer = struct {
         return true;
     }
 
-    pub fn isOsc52Supported(self: *CliRenderer) bool {
-        return self.terminal.isOsc52Supported();
-    }
-
     fn renderDebugOverlay(self: *CliRenderer) void {
         if (!self.debugOverlay.enabled) return;
 

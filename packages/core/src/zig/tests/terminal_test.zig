@@ -608,14 +608,14 @@ test "writeClipboard - handles nested tmux sessions" {
     try testing.expect(passthrough_count >= 2);
 }
 
-test "isOsc52Supported - returns correct value" {
+test "caps.osc52 - clipboard capability flag" {
     var term = Terminal.init(.{});
 
     term.caps.osc52 = false;
-    try testing.expect(!term.isOsc52Supported());
+    try testing.expect(!term.caps.osc52);
 
     term.caps.osc52 = true;
-    try testing.expect(term.isOsc52Supported());
+    try testing.expect(term.caps.osc52);
 }
 
 fn countSubstring(haystack: []const u8, needle: []const u8) usize {

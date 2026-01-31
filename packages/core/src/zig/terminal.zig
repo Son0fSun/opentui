@@ -771,11 +771,6 @@ pub fn writeClipboard(self: *Terminal, tty: anytype, target: ClipboardTarget, pa
     }
 }
 
-/// Check if OSC 52 clipboard is supported
-pub fn isOsc52Supported(self: *Terminal) bool {
-    return self.caps.osc52;
-}
-
 /// Check if we can write to the clipboard (TTY and OSC 52 supported)
 fn canWriteClipboard(self: *Terminal) bool {
     // In a real TTY environment, we'd check isTTY here
