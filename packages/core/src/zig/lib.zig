@@ -294,10 +294,6 @@ export fn copyToClipboardOSC52(rendererPtr: *renderer.CliRenderer, target: u8, p
     return rendererPtr.copyToClipboardOSC52(targetEnum, payload);
 }
 
-export fn isOsc52Supported(rendererPtr: *renderer.CliRenderer) bool {
-    return rendererPtr.isOsc52Supported();
-}
-
 // Buffer functions
 export fn bufferClear(bufferPtr: *buffer.OptimizedBuffer, bg: [*]const f32) void {
     bufferPtr.clear(utils.f32PtrToRGBA(bg), null) catch {};

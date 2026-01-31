@@ -532,7 +532,7 @@ export class CliRenderer extends EventEmitter implements RenderContext {
         return this.lib.copyToClipboardOSC52(this.rendererPtr, target, payload)
       },
       isOsc52Supported: () => {
-        return this.lib.isOsc52Supported(this.rendererPtr)
+        return this._capabilities?.osc52 ?? false
       },
     })
     this.resizeDebounceDelay = config.debounceDelay || 100
@@ -1496,7 +1496,7 @@ export class CliRenderer extends EventEmitter implements RenderContext {
   }
 
   public isOsc52Supported(): boolean {
-    return this.clipboard.isOsc52Supported()
+    return this._capabilities?.osc52 ?? false
   }
 
   public dumpHitGrid(): void {
