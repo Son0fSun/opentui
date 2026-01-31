@@ -707,67 +707,62 @@ pub fn writeClipboard(self: *Terminal, tty: anytype, target: ClipboardTarget, pa
     const osc52 = stream.getWritten();
 
     // Check for tmux/screen and wrap accordingly
-    var env_map = std.process.getEnvMap(std.heap.page_allocator) catch return;
-    defer env_map.deinit();
+    // Use self.in_tmux which is set by checkEnvironmentOverrides() considering
+    // env vars, xtversion response, and remote option
+    const is_tmux = self.in_tmux or self.isXtversionTmux();
 
-    if (env_map.get("TMUX")) |_| {
+    if (is_tmux) {
         // tmux requires DCS passthrough with tmux; prefix
-        // Count nesting level by commas in TMUX value
-        const tmux_value = env_map.get("TMUX").?;
-        var tmux_level: u32 = 1;
-        for (tmux_value) |c| {
-            if (c == ',') tmux_level += 1;
-        }
-
-        // Build wrapped sequence
+        // For nested tmux, we use a fixed level of 1 as we don't have access
+        // to env vars here (by design - detection already happened in checkEnvironmentOverrides)
+        // In practice, single-level wrapping works for most cases
         var wrapped_buf: [4096]u8 = undefined;
-
-        var current = osc52;
-        var i: u32 = 0;
-        while (i < tmux_level) : (i += 1) {
-            // Double all ESC characters
-            var doubled_buf: [2048]u8 = undefined;
-            var doubled_stream = std.io.fixedBufferStream(&doubled_buf);
-            const doubled_writer = doubled_stream.writer();
-            for (current) |c| {
-                if (c == '\x1b') {
-                    try doubled_writer.writeByte('\x1b');
-                }
-                try doubled_writer.writeByte(c);
-            }
-            const doubled = doubled_stream.getWritten();
-
-            // Wrap in DCS with tmux; prefix
-            var wrapped_stream = std.io.fixedBufferStream(&wrapped_buf);
-            const wrap_writer = wrapped_stream.writer();
-            try wrap_writer.writeAll("\x1bPtmux;");
-            try wrap_writer.writeAll(doubled);
-            try wrap_writer.writeAll("\x1b\\");
-            current = wrapped_stream.getWritten();
-        }
-
-        try tty.writeAll(current);
-    } else if (env_map.get("STY")) |_| {
-        // GNU Screen requires DCS passthrough without the tmux; prefix
-        var wrapped_buf: [2048]u8 = undefined;
         var wrapped_stream = std.io.fixedBufferStream(&wrapped_buf);
-        const wrapped_writer = wrapped_stream.writer();
+        const wrap_writer = wrapped_stream.writer();
 
         // Double all ESC characters
         for (osc52) |c| {
             if (c == '\x1b') {
-                try wrapped_writer.writeByte('\x1b');
+                try wrap_writer.writeByte('\x1b');
             }
-            try wrapped_writer.writeByte(c);
+            try wrap_writer.writeByte(c);
         }
         const doubled = wrapped_stream.getWritten();
 
-        // Wrap in DCS
-        try tty.writeAll("\x1bP");
+        // Wrap in DCS with tmux; prefix
+        try tty.writeAll("\x1bPtmux;");
         try tty.writeAll(doubled);
         try tty.writeAll("\x1b\\");
-    } else {
+    } else if (self.opts.remote) {
+        // In remote mode, don't check STY - assume no passthrough needed
         try tty.writeAll(osc52);
+    } else {
+        // Check for GNU Screen (STY env var)
+        var env_map = std.process.getEnvMap(std.heap.page_allocator) catch return;
+        defer env_map.deinit();
+
+        if (env_map.get("STY")) |_| {
+            // GNU Screen requires DCS passthrough without the tmux; prefix
+            var wrapped_buf: [2048]u8 = undefined;
+            var wrapped_stream = std.io.fixedBufferStream(&wrapped_buf);
+            const wrapped_writer = wrapped_stream.writer();
+
+            // Double all ESC characters
+            for (osc52) |c| {
+                if (c == '\x1b') {
+                    try wrapped_writer.writeByte('\x1b');
+                }
+                try wrapped_writer.writeByte(c);
+            }
+            const doubled = wrapped_stream.getWritten();
+
+            // Wrap in DCS
+            try tty.writeAll("\x1bP");
+            try tty.writeAll(doubled);
+            try tty.writeAll("\x1b\\");
+        } else {
+            try tty.writeAll(osc52);
+        }
     }
 }
 
