@@ -278,7 +278,7 @@ function getOpenTUILib(libPath?: string) {
       args: ["ptr", "ptr", "usize"],
       returns: "void",
     },
-    copyToClipboard: {
+    copyToClipboardOSC52: {
       args: ["ptr", "u8", "ptr", "usize"],
       returns: "bool",
     },
@@ -1394,7 +1394,7 @@ export interface RenderLib {
   setDebugOverlay: (renderer: Pointer, enabled: boolean, corner: DebugOverlayCorner) => void
   clearTerminal: (renderer: Pointer) => void
   setTerminalTitle: (renderer: Pointer, title: string) => void
-  copyToClipboard: (renderer: Pointer, target: number, payload: Uint8Array) => boolean
+  copyToClipboardOSC52: (renderer: Pointer, target: number, payload: Uint8Array) => boolean
   isOsc52Supported: (renderer: Pointer) => boolean
   addToHitGrid: (renderer: Pointer, x: number, y: number, width: number, height: number, id: number) => void
   clearCurrentHitGrid: (renderer: Pointer) => void
@@ -2247,8 +2247,8 @@ class FFIRenderLib implements RenderLib {
     this.opentui.symbols.setTerminalTitle(renderer, titleBytes, titleBytes.length)
   }
 
-  public copyToClipboard(renderer: Pointer, target: number, payload: Uint8Array): boolean {
-    return this.opentui.symbols.copyToClipboard(renderer, target, payload, payload.length)
+  public copyToClipboardOSC52(renderer: Pointer, target: number, payload: Uint8Array): boolean {
+    return this.opentui.symbols.copyToClipboardOSC52(renderer, target, payload, payload.length)
   }
 
   public isOsc52Supported(renderer: Pointer): boolean {

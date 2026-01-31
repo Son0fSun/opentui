@@ -282,7 +282,7 @@ export fn setTerminalTitle(rendererPtr: *renderer.CliRenderer, titlePtr: [*]cons
     rendererPtr.setTerminalTitle(title);
 }
 
-export fn copyToClipboard(rendererPtr: *renderer.CliRenderer, target: u8, payloadPtr: [*]const u8, payloadLen: usize) bool {
+export fn copyToClipboardOSC52(rendererPtr: *renderer.CliRenderer, target: u8, payloadPtr: [*]const u8, payloadLen: usize) bool {
     const targetEnum: terminal.ClipboardTarget = switch (target) {
         0 => .clipboard,
         1 => .primary,
@@ -291,7 +291,7 @@ export fn copyToClipboard(rendererPtr: *renderer.CliRenderer, target: u8, payloa
         else => .clipboard,
     };
     const payload = payloadPtr[0..payloadLen];
-    return rendererPtr.copyToClipboard(targetEnum, payload);
+    return rendererPtr.copyToClipboardOSC52(targetEnum, payload);
 }
 
 export fn isOsc52Supported(rendererPtr: *renderer.CliRenderer) bool {

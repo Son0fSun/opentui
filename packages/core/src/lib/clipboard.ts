@@ -20,7 +20,7 @@ export class Clipboard {
     this.adapter = adapter
   }
 
-  public copyToClipboard(text: string, target: ClipboardTarget = ClipboardTarget.Clipboard): boolean {
+  public copyToClipboardOSC52(text: string, target: ClipboardTarget = ClipboardTarget.Clipboard): boolean {
     if (!this.adapter.isOsc52Supported()) {
       return false
     }
@@ -29,7 +29,7 @@ export class Clipboard {
     return this.adapter.copyToClipboard(target, payload)
   }
 
-  public clearClipboard(target: ClipboardTarget = ClipboardTarget.Clipboard): boolean {
+  public clearClipboardOSC52(target: ClipboardTarget = ClipboardTarget.Clipboard): boolean {
     if (!this.adapter.isOsc52Supported()) {
       return false
     }

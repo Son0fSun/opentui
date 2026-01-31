@@ -1234,7 +1234,7 @@ pub const CliRenderer = struct {
         self.writeOut(stream.getWritten());
     }
 
-    pub fn copyToClipboard(self: *CliRenderer, target: Terminal.ClipboardTarget, payload: []const u8) bool {
+    pub fn copyToClipboardOSC52(self: *CliRenderer, target: Terminal.ClipboardTarget, payload: []const u8) bool {
         var stream = std.io.fixedBufferStream(&self.writeOutBuf);
         self.terminal.writeClipboard(stream.writer(), target, payload) catch return false;
         self.writeOut(stream.getWritten());

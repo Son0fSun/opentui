@@ -30,25 +30,25 @@ describe("clipboard", () => {
     delete process.env["STY"]
   })
 
-  describe("copyToClipboard", () => {
+  describe("copyToClipboardOSC52", () => {
     it("should return false when OSC 52 is not supported", () => {
       const { adapter } = createMockAdapter({ supported: false })
       const clipboard = new Clipboard(adapter)
-      const result = clipboard.copyToClipboard("test")
+      const result = clipboard.copyToClipboardOSC52("test")
       expect(result).toBe(false)
     })
 
     it("should return true when OSC 52 is supported", () => {
       const { adapter } = createMockAdapter({ supported: true })
       const clipboard = new Clipboard(adapter)
-      const result = clipboard.copyToClipboard("test")
+      const result = clipboard.copyToClipboardOSC52("test")
       expect(result).toBe(true)
     })
 
     it("should encode text as base64 and delegate to adapter", () => {
       const { adapter, getLastTarget, getLastPayload } = createMockAdapter()
       const clipboard = new Clipboard(adapter)
-      clipboard.copyToClipboard("hello")
+      clipboard.copyToClipboardOSC52("hello")
 
       expect(getLastTarget()).toBe(ClipboardTarget.Clipboard)
       const payload = getLastPayload()
@@ -60,29 +60,29 @@ describe("clipboard", () => {
     it("should support different selection targets", () => {
       const { adapter, getLastTarget } = createMockAdapter()
       const clipboard = new Clipboard(adapter)
-      clipboard.copyToClipboard("test", ClipboardTarget.Primary)
+      clipboard.copyToClipboardOSC52("test", ClipboardTarget.Primary)
       expect(getLastTarget()).toBe(ClipboardTarget.Primary)
 
-      clipboard.copyToClipboard("test", ClipboardTarget.Secondary)
+      clipboard.copyToClipboardOSC52("test", ClipboardTarget.Secondary)
       expect(getLastTarget()).toBe(ClipboardTarget.Secondary)
 
-      clipboard.copyToClipboard("test", ClipboardTarget.Query)
+      clipboard.copyToClipboardOSC52("test", ClipboardTarget.Query)
       expect(getLastTarget()).toBe(ClipboardTarget.Query)
     })
   })
 
-  describe("clearClipboard", () => {
+  describe("clearClipboardOSC52", () => {
     it("should return false when OSC 52 is not supported", () => {
       const { adapter } = createMockAdapter({ supported: false })
       const clipboard = new Clipboard(adapter)
-      const result = clipboard.clearClipboard()
+      const result = clipboard.clearClipboardOSC52()
       expect(result).toBe(false)
     })
 
     it("should send empty payload to adapter", () => {
       const { adapter, getLastPayload } = createMockAdapter()
       const clipboard = new Clipboard(adapter)
-      clipboard.clearClipboard()
+      clipboard.clearClipboardOSC52()
 
       const payload = getLastPayload()
       expect(payload).not.toBeNull()

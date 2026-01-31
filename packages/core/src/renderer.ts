@@ -529,7 +529,7 @@ export class CliRenderer extends EventEmitter implements RenderContext {
 
     this.clipboard = new Clipboard({
       copyToClipboard: (target: number, payload: Uint8Array) => {
-        return this.lib.copyToClipboard(this.rendererPtr, target, payload)
+        return this.lib.copyToClipboardOSC52(this.rendererPtr, target, payload)
       },
       isOsc52Supported: () => {
         return this.lib.isOsc52Supported(this.rendererPtr)
@@ -1487,12 +1487,12 @@ export class CliRenderer extends EventEmitter implements RenderContext {
     this.lib.setTerminalTitle(this.rendererPtr, title)
   }
 
-  public copyToClipboard(text: string, target?: ClipboardTarget): boolean {
-    return this.clipboard.copyToClipboard(text, target)
+  public copyToClipboardOSC52(text: string, target?: ClipboardTarget): boolean {
+    return this.clipboard.copyToClipboardOSC52(text, target)
   }
 
-  public clearClipboard(target?: ClipboardTarget): boolean {
-    return this.clipboard.clearClipboard(target)
+  public clearClipboardOSC52(target?: ClipboardTarget): boolean {
+    return this.clipboard.clearClipboardOSC52(target)
   }
 
   public isOsc52Supported(): boolean {
