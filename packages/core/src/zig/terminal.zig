@@ -706,21 +706,17 @@ pub fn writeClipboard(self: *Terminal, tty: anytype, target: ClipboardTarget, pa
 
     const osc52 = stream.getWritten();
 
-    // Check for tmux/screen and wrap accordingly
     // Use self.in_tmux which is set by checkEnvironmentOverrides() considering
     // env vars, xtversion response, and remote option
     const is_tmux = self.in_tmux or self.isXtversionTmux();
 
     if (is_tmux) {
-        // tmux requires DCS passthrough with tmux; prefix
         // For nested tmux, we use a fixed level of 1 as we don't have access
         // to env vars here (by design - detection already happened in checkEnvironmentOverrides)
         // In practice, single-level wrapping works for most cases
         var wrapped_buf: [4096]u8 = undefined;
         var wrapped_stream = std.io.fixedBufferStream(&wrapped_buf);
         const wrap_writer = wrapped_stream.writer();
-
-        // Double all ESC characters
         for (osc52) |c| {
             if (c == '\x1b') {
                 try wrap_writer.writeByte('\x1b');
@@ -729,25 +725,20 @@ pub fn writeClipboard(self: *Terminal, tty: anytype, target: ClipboardTarget, pa
         }
         const doubled = wrapped_stream.getWritten();
 
-        // Wrap in DCS with tmux; prefix
         try tty.writeAll(ansi.ANSI.tmuxDcsStart);
         try tty.writeAll(doubled);
         try tty.writeAll(ansi.ANSI.tmuxDcsEnd);
     } else if (self.opts.remote) {
-        // In remote mode, don't check STY - assume no passthrough needed
         try tty.writeAll(osc52);
     } else {
-        // Check for GNU Screen (STY env var)
         var env_map = std.process.getEnvMap(std.heap.page_allocator) catch return;
         defer env_map.deinit();
 
         if (env_map.get("STY")) |_| {
-            // GNU Screen requires DCS passthrough without the tmux; prefix
             var wrapped_buf: [2048]u8 = undefined;
             var wrapped_stream = std.io.fixedBufferStream(&wrapped_buf);
             const wrapped_writer = wrapped_stream.writer();
 
-            // Double all ESC characters
             for (osc52) |c| {
                 if (c == '\x1b') {
                     try wrapped_writer.writeByte('\x1b');
@@ -756,7 +747,6 @@ pub fn writeClipboard(self: *Terminal, tty: anytype, target: ClipboardTarget, pa
             }
             const doubled = wrapped_stream.getWritten();
 
-            // Wrap in DCS
             try tty.writeAll(ansi.ANSI.screenDcsStart);
             try tty.writeAll(doubled);
             try tty.writeAll(ansi.ANSI.screenDcsEnd);
