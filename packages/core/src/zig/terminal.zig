@@ -730,9 +730,9 @@ pub fn writeClipboard(self: *Terminal, tty: anytype, target: ClipboardTarget, pa
         const doubled = wrapped_stream.getWritten();
 
         // Wrap in DCS with tmux; prefix
-        try tty.writeAll("\x1bPtmux;");
+        try tty.writeAll(ansi.ANSI.tmuxDcsStart);
         try tty.writeAll(doubled);
-        try tty.writeAll("\x1b\\");
+        try tty.writeAll(ansi.ANSI.tmuxDcsEnd);
     } else if (self.opts.remote) {
         // In remote mode, don't check STY - assume no passthrough needed
         try tty.writeAll(osc52);
@@ -757,9 +757,9 @@ pub fn writeClipboard(self: *Terminal, tty: anytype, target: ClipboardTarget, pa
             const doubled = wrapped_stream.getWritten();
 
             // Wrap in DCS
-            try tty.writeAll("\x1bP");
+            try tty.writeAll(ansi.ANSI.screenDcsStart);
             try tty.writeAll(doubled);
-            try tty.writeAll("\x1b\\");
+            try tty.writeAll(ansi.ANSI.screenDcsEnd);
         } else {
             try tty.writeAll(osc52);
         }
