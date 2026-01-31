@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from "bun:test"
+import { describe, expect, it } from "bun:test"
 import { Clipboard, ClipboardTarget } from "./clipboard"
 
 describe("clipboard", () => {
@@ -23,12 +23,6 @@ describe("clipboard", () => {
       getLastPayload: () => lastPayload,
     }
   }
-
-  beforeEach(() => {
-    // Reset environment
-    delete process.env["TMUX"]
-    delete process.env["STY"]
-  })
 
   describe("copyToClipboardOSC52", () => {
     it("should return false when OSC 52 is not supported", () => {
